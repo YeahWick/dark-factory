@@ -1,0 +1,5 @@
+pytest>=7.0
+hypothesis>=6.0
+mutmut>=2.0
+coverage>=7.0
+pytest-cov>=4.0
