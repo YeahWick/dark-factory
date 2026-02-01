@@ -1,0 +1,16 @@
+[project]
+name = "calculator-artifact"
+version = "0.1.0"
+description = "CRUD API for DAG artifacts (blocks/nodes) in the dark factory pattern"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["models", "spec", "store", "api", "app"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
