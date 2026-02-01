@@ -1,0 +1,21 @@
+[project]
+name = "auth-whitebox"
+version = "0.1.0"
+description = "Authentication frontend with white-box verification for protecting API endpoints"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["auth", "models", "store", "api", "middleware", "app"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+
+[tool.mutmut]
+paths_to_mutate = "auth.py"
+tests_dir = "tests/"
+runner = "python -m pytest tests/ -x -q"
