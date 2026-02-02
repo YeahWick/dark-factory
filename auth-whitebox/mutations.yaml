@@ -59,3 +59,10 @@ targets:
         description: "Invert expiry: time.time() > exp -> time.time() < exp"
         original: "time.time() > exp"
         mutant: "time.time() < exp"
+
+      # ── Security-hardening: signature bypass ────────────────────────
+      - id: "TOKEN-SIG-NEGATE"
+        function: "validate_token"
+        description: "Negate signature check: accept forged, reject valid"
+        original: "not hmac.compare_digest(provided_sig, expected_sig)"
+        mutant: "hmac.compare_digest(provided_sig, expected_sig)"

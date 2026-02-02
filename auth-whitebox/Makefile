@@ -1,4 +1,4 @@
-.PHONY: install test coverage mutate mutate-explicit counterexamples mutation-report validate all clean run
+.PHONY: install test coverage mutate mutate-explicit mutate-hardening counterexamples mutation-report validate all clean run
 
 ## Install dependencies
 install:
@@ -20,6 +20,10 @@ mutate:
 mutate-explicit:
 	python -m validation.run_mutations --explicit
 
+## Run security-hardening mutations (auth + middleware + store)
+mutate-hardening:
+	python -m validation.run_mutations --hardening
+
 ## Run the counterexample search (external validation)
 counterexamples:
 	python -m validation.counterexample_search
@@ -33,8 +37,8 @@ validate: test coverage counterexamples
 	@echo ""
 	@echo "=== Full validation pipeline complete ==="
 
-## Everything: validate then mutation-test
-all: validate mutate
+## Everything: validate then mutation-test (including hardening)
+all: validate mutate mutate-hardening
 	@echo ""
 	@echo "=== Full pipeline (validate + mutation testing) complete ==="
 
