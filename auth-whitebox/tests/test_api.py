@@ -259,3 +259,105 @@ class TestProtectedAdmin:
     def test_admin_no_token_401(self, client):
         resp = client.get("/protected/admin")
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Endpoint hardening: every protected endpoint rejects invalid tokens
+# ---------------------------------------------------------------------------
+
+# All endpoints that require authentication.
+PROTECTED_ENDPOINTS = [
+    ("GET", "/auth/me"),
+    ("PUT", "/auth/me"),
+    ("GET", "/protected/status"),
+    ("GET", "/protected/admin"),
+]
+
+
+class TestEndpointHardening:
+    """Ensure every protected endpoint rejects forged, expired, malformed,
+    and tampered tokens.
+
+    Branches exercised: AUTHZ-NO-TOKEN, AUTHZ-INVALID-TOKEN, TOKEN-BAD-SIG,
+    TOKEN-MALFORMED, TOKEN-EXPIRED.
+    """
+
+    # -- no token at all ----------------------------------------------------
+
+    @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
+    def test_no_token_401(self, client, method, path):
+        resp = client.request(method, path)
+        assert resp.status_code == 401
+
+    # -- forged token: valid structure, wrong signing secret ----------------
+
+    @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
+    def test_forged_token_wrong_secret_401(self, client, method, path):
+        from auth import create_token
+
+        forged = create_token("fake-user-id", "wrong-secret", ttl=3600)
+        resp = client.request(method, path, headers=_auth_header(forged))
+        assert resp.status_code == 401
+
+    # -- expired token (signed with correct secret) -------------------------
+
+    @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
+    def test_expired_token_401(self, client, method, path):
+        from auth import create_token
+
+        expired = create_token("fake-user-id", TEST_SECRET, ttl=-1)
+        resp = client.request(method, path, headers=_auth_header(expired))
+        assert resp.status_code == 401
+
+    # -- malformed: no dot separator ----------------------------------------
+
+    @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
+    def test_malformed_no_dot_401(self, client, method, path):
+        resp = client.request(method, path, headers=_auth_header("nodothere"))
+        assert resp.status_code == 401
+
+    # -- malformed: random garbage with a dot -------------------------------
+
+    @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
+    def test_garbage_token_401(self, client, method, path):
+        resp = client.request(
+            method, path, headers=_auth_header("!!!garbage!!!.also-garbage"),
+        )
+        assert resp.status_code == 401
+
+    # -- tampered payload: modify base64 without re-signing -----------------
+
+    @pytest.mark.parametrize("method,path", PROTECTED_ENDPOINTS)
+    def test_tampered_payload_401(self, client, method, path):
+        _register_user(client)
+        login = _login_user(client)
+        token = login["access_token"]
+        payload_b64, sig = token.split(".", 1)
+        # Flip a character in the payload to break the signature match
+        flipped = "A" if payload_b64[-1] != "A" else "B"
+        tampered = f"{payload_b64[:-1]}{flipped}.{sig}"
+        resp = client.request(method, path, headers=_auth_header(tampered))
+        assert resp.status_code == 401
+
+    # -- token for a deleted user -------------------------------------------
+
+    def test_deleted_user_token_401(self, client):
+        data = _register_user(client)
+        login = _login_user(client)
+        token = login["access_token"]
+        # Delete the user through the store
+        from api import get_store
+
+        get_store().delete(data["id"])
+        resp = client.get("/protected/status", headers=_auth_header(token))
+        assert resp.status_code == 401
+
+    # -- token for a nonexistent subject ------------------------------------
+
+    def test_nonexistent_subject_token_401(self, client):
+        from auth import create_token
+
+        # Valid signature + not expired, but subject doesn't exist in store
+        token = create_token("no-such-user-id", TEST_SECRET, ttl=3600)
+        resp = client.get("/protected/status", headers=_auth_header(token))
+        assert resp.status_code == 401

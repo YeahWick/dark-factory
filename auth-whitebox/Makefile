@@ -1,4 +1,4 @@
-.PHONY: install test coverage mutate counterexamples mutation-report validate all clean run
+.PHONY: install test coverage mutate mutate-explicit mutate-hardening counterexamples mutation-report validate all clean run
 
 ## Install dependencies
 install:
@@ -12,16 +12,23 @@ test:
 coverage:
 	python -m pytest tests/ --cov --cov-branch --cov-report=term-missing --cov-config=pyproject.toml
 
-## Run mutation testing (mutmut)
+## Run mutation testing (AST-based, from mutations.yaml)
 mutate:
-	mutmut run --paths-to-mutate=auth.py --tests-dir=tests/
-	mutmut results
+	python -m validation.run_mutations
+
+## Run mutation testing with explicit (programmatic) mutations
+mutate-explicit:
+	python -m validation.run_mutations --explicit
+
+## Run security-hardening mutations (auth + middleware + store)
+mutate-hardening:
+	python -m validation.run_mutations --hardening
 
 ## Run the counterexample search (external validation)
 counterexamples:
 	python -m validation.counterexample_search
 
-## Analyse surviving mutants
+## Analyse surviving mutants (legacy mutmut wrapper)
 mutation-report:
 	python -m validation.mutation_analysis
 
@@ -30,8 +37,10 @@ validate: test coverage counterexamples
 	@echo ""
 	@echo "=== Full validation pipeline complete ==="
 
-## Everything: validate then mutation-test
-all: validate mutate mutation-report
+## Everything: validate then mutation-test (including hardening)
+all: validate mutate mutate-hardening
+	@echo ""
+	@echo "=== Full pipeline (validate + mutation testing) complete ==="
 
 ## Run the API server
 run:

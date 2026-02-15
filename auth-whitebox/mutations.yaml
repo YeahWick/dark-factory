@@ -1,0 +1,68 @@
+version: "1.0"
+
+settings:
+  timeout: 30
+
+targets:
+  - module: "auth"
+    file: "auth.py"
+
+    mutations:
+      # ── hash_password boundary mutations ──────────────────────────
+      - id: "PWD-LEN-LT-TO-LE"
+        function: "hash_password"
+        description: "Off-by-one: change < to <= in min-length check"
+        original: "len(password) < MIN_PASSWORD_LENGTH"
+        mutant: "len(password) <= MIN_PASSWORD_LENGTH"
+
+      - id: "PWD-LEN-GT-TO-GE"
+        function: "hash_password"
+        description: "Off-by-one: change > to >= in max-length check"
+        original: "len(password) > MAX_PASSWORD_LENGTH"
+        mutant: "len(password) >= MAX_PASSWORD_LENGTH"
+
+      # ── verify_password mutations ─────────────────────────────────
+      - id: "VERIFY-NOT-IN-TO-IN"
+        function: "verify_password"
+        description: "Negate format check: '$' not in -> '$' in"
+        original: "'$' not in stored_hash"
+        mutant: "'$' in stored_hash"
+
+      - id: "VERIFY-TRUE-TO-FALSE"
+        function: "verify_password"
+        description: "Invert match result: return True -> return False"
+        original: "return True"
+        mutant: "return False"
+
+      - id: "VERIFY-FALSE-TO-TRUE"
+        function: "verify_password"
+        description: "Invert mismatch result: return False -> return True"
+        original: "return False"
+        mutant: "return True"
+
+      # ── create_token mutations ────────────────────────────────────
+      - id: "TOKEN-TTL-ADD-TO-SUB"
+        function: "create_token"
+        description: "Break expiry: now + ttl -> now - ttl"
+        original: "now + ttl"
+        mutant: "now - ttl"
+
+      # ── validate_token mutations ──────────────────────────────────
+      - id: "TOKEN-NOT-IN-TO-IN"
+        function: "validate_token"
+        description: "Negate dot check: '.' not in -> '.' in"
+        original: "'.' not in token"
+        mutant: "'.' in token"
+
+      - id: "TOKEN-EXP-GT-TO-LT"
+        function: "validate_token"
+        description: "Invert expiry: time.time() > exp -> time.time() < exp"
+        original: "time.time() > exp"
+        mutant: "time.time() < exp"
+
+      # ── Security-hardening: signature bypass ────────────────────────
+      - id: "TOKEN-SIG-NEGATE"
+        function: "validate_token"
+        description: "Negate signature check: accept forged, reject valid"
+        original: "not hmac.compare_digest(provided_sig, expected_sig)"
+        mutant: "hmac.compare_digest(provided_sig, expected_sig)"

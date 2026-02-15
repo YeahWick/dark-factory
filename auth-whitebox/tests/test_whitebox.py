@@ -383,6 +383,128 @@ class TestUserCRUD:
 
 
 # ===================================================================
+# AUTHORIZATION / MIDDLEWARE (AUTHZ-NO-TOKEN, AUTHZ-INVALID-TOKEN,
+#                             AUTHZ-ALLOWED, AUTHZ-DENIED)
+# ===================================================================
+
+class TestAuthorization:
+    """White-box tests for middleware auth branches.
+
+    These exercise get_current_user and require_role at the HTTP level
+    through a real FastAPI TestClient so the Depends() chain runs end-to-end.
+    """
+
+    @pytest.fixture
+    def _app(self):
+        """Yields (TestClient, store, secret) for a fresh app."""
+        from fastapi.testclient import TestClient
+        from app import create_app
+        _secret = "test-secret-for-authz"
+        _store = UserStore()
+        app = create_app(store=_store, secret=_secret)
+        return TestClient(app), _store, _secret
+
+    def _register_and_login(self, client, store, secret,
+                            username="alice", roles=None):
+        payload = UserCreate(
+            username=username,
+            password=VALID_PASSWORD,
+            roles=roles or ["viewer"],
+        )
+        user = store.register(payload)
+        token = create_token(user.id, secret, roles=user.roles)
+        return user, token
+
+    # -- AUTHZ-NO-TOKEN: missing token → 401 --------------------------
+
+    def test_authz_no_token_status(self, _app):
+        """Branch: AUTHZ-NO-TOKEN — no credentials returns 401."""
+        client, _, _ = _app
+        resp = client.get("/protected/status")
+        assert resp.status_code == 401
+
+    def test_authz_no_token_admin(self, _app):
+        """Branch: AUTHZ-NO-TOKEN — no credentials on admin returns 401."""
+        client, _, _ = _app
+        resp = client.get("/protected/admin")
+        assert resp.status_code == 401
+
+    # -- AUTHZ-INVALID-TOKEN: bad token → 401 -------------------------
+
+    def test_authz_invalid_token_forged(self, _app):
+        """Branch: AUTHZ-INVALID-TOKEN — forged (wrong-secret) token returns 401."""
+        client, _, _ = _app
+        forged = create_token("fake-id", "wrong-secret", ttl=3600)
+        resp = client.get(
+            "/protected/status",
+            headers={"Authorization": f"Bearer {forged}"},
+        )
+        assert resp.status_code == 401
+
+    def test_authz_invalid_token_expired(self, _app):
+        """Branch: AUTHZ-INVALID-TOKEN — expired token returns 401."""
+        client, store, secret = _app
+        user, _ = self._register_and_login(client, store, secret)
+        expired = create_token(user.id, secret, ttl=-1)
+        resp = client.get(
+            "/protected/status",
+            headers={"Authorization": f"Bearer {expired}"},
+        )
+        assert resp.status_code == 401
+
+    def test_authz_invalid_token_malformed(self, _app):
+        """Branch: AUTHZ-INVALID-TOKEN — malformed token returns 401."""
+        client, _, _ = _app
+        resp = client.get(
+            "/protected/status",
+            headers={"Authorization": "Bearer no-dot-separator"},
+        )
+        assert resp.status_code == 401
+
+    def test_authz_invalid_token_tampered(self, _app):
+        """Branch: AUTHZ-INVALID-TOKEN — tampered payload returns 401."""
+        client, store, secret = _app
+        user, token = self._register_and_login(client, store, secret)
+        payload_b64, sig = token.split(".", 1)
+        flipped = "A" if payload_b64[-1] != "A" else "B"
+        tampered = f"{payload_b64[:-1]}{flipped}.{sig}"
+        resp = client.get(
+            "/protected/status",
+            headers={"Authorization": f"Bearer {tampered}"},
+        )
+        assert resp.status_code == 401
+
+    # -- AUTHZ-ALLOWED: user has required role → 200 -------------------
+
+    def test_authz_allowed_admin_role(self, _app):
+        """Branch: AUTHZ-ALLOWED — admin user can access admin endpoint."""
+        client, store, secret = _app
+        _, token = self._register_and_login(
+            client, store, secret, username="bob_admin",
+            roles=["admin", "viewer"],
+        )
+        resp = client.get(
+            "/protected/admin",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+
+    # -- AUTHZ-DENIED: user lacks required role → 403 ------------------
+
+    def test_authz_denied_viewer_on_admin(self, _app):
+        """Branch: AUTHZ-DENIED — viewer cannot access admin endpoint."""
+        client, store, secret = _app
+        _, token = self._register_and_login(
+            client, store, secret, roles=["viewer"],
+        )
+        resp = client.get(
+            "/protected/admin",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+
+
+# ===================================================================
 # BRANCH COVERAGE MATRIX
 # ===================================================================
 
@@ -451,5 +573,21 @@ BRANCH_COVERAGE = {
     ],
     "AUTH-DISABLED": [
         "TestAuthentication::test_auth_disabled",
+    ],
+    "AUTHZ-NO-TOKEN": [
+        "TestAuthorization::test_authz_no_token_status",
+        "TestAuthorization::test_authz_no_token_admin",
+    ],
+    "AUTHZ-INVALID-TOKEN": [
+        "TestAuthorization::test_authz_invalid_token_forged",
+        "TestAuthorization::test_authz_invalid_token_expired",
+        "TestAuthorization::test_authz_invalid_token_malformed",
+        "TestAuthorization::test_authz_invalid_token_tampered",
+    ],
+    "AUTHZ-ALLOWED": [
+        "TestAuthorization::test_authz_allowed_admin_role",
+    ],
+    "AUTHZ-DENIED": [
+        "TestAuthorization::test_authz_denied_viewer_on_admin",
     ],
 }
